@@ -1,0 +1,138 @@
+<script>
+    // 【重要】ここにステップ3で取得したウェブアプリのURLを貼り付けてください
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbyy6D8cMTuyVv4Zdale2P1qJ3uvQO7AYqfgz2-7c2g545lgoi8ChYgtiDG6C14oLJf7/exec"; 
+
+    // 10人分の入力枠を作成
+    const memberInputsDiv = document.getElementById('memberInputs');
+    for (let i = 1; i <= 10; i++) {
+        memberInputsDiv.innerHTML += `<input type="text" class="member-input" id="m${i}" placeholder="参加者 ${i}">`;
+    }
+
+    // 子4人分の入力枠を作成
+    const childrenInputsDiv = document.getElementById('childrenInputs');
+    for (let i = 1; i <= 4; i++) {
+        childrenInputsDiv.innerHTML += `
+            <div class="score-row">
+                <div>
+                    🏃 子${i}: <select id="ko${i}Select" class="ko-sel"><option value="">選択</option></select>
+                    <select id="ko${i}Time" onchange="calculatePoints()">
+                        <option value="0">3~2分(0pt)</option>
+                        <option value="1">2~1分(1pt)</option>
+                        <option value="2">1分~終了(2pt)</option>
+                        <option value="3">逃げ切り(3pt)</option>
+                    </select>
+                </div>
+                <div class="bonus-group">
+                    <label class="bonus-item"><input type="checkbox" id="ko${i}B1" onchange="calculatePoints()"> B1:敵陣(+0.5)</label>
+                    <label class="bonus-item"><input type="checkbox" id="ko${i}B2" onchange="calculatePoints()"> B2:最敵陣(+0.5)</label>
+                </div>
+            </div>`;
+    }
+
+    let scores = {};
+
+    // ページを開いた瞬間に、スプレッドシートから最新ランキングを取得する
+    window.onload = async () => {
+        await fetchRanking();
+    };
+
+    async function fetchRanking() {
+        try {
+            const response = await fetch(GAS_URL);
+            scores = await response.json();
+            updateRanking();
+        } catch (e) {
+            console.error("データの取得に失敗しました", e);
+        }
+    }
+
+    function updateMemberList() {
+        const oniDropdown = document.getElementById('oniSelect');
+        const koDropdowns = document.querySelectorAll('.ko-sel');
+        const optionsHtml = ['<option value="">選択</option>'];
+        for (let i = 1; i <= 10; i++) {
+            const name = document.getElementById(`m${i}`).value;
+            if (name) {
+                optionsHtml.push(`<option value="${name}">${name}</option>`);
+                if (!(name in scores)) scores[name] = 0;
+            }
+        }
+        oniDropdown.innerHTML = optionsHtml.join('');
+        koDropdowns.forEach(sel => sel.innerHTML = optionsHtml.join(''));
+        alert("メンバー候補を更新しました（保存はされません）");
+    }
+
+    function calculatePoints() {
+        let oniBonus = 0;
+        for (let i = 1; i <= 4; i++) {
+            const timeVal = parseInt(document.getElementById(`ko${i}Time`).value);
+            if (timeVal === 0) oniBonus += 3;
+            else if (timeVal === 1) oniBonus += 2;
+            else if (timeVal === 2) oniBonus += 1;
+        }
+        document.getElementById('oniTotalDisplay').innerText = oniBonus;
+        return oniBonus;
+    }
+
+    async function saveMatch() {
+        const oniName = document.getElementById('oniSelect').value;
+        if (!oniName) { alert("鬼を選択してください"); return; }
+
+        const matchData = {
+            oniName: oniName,
+            oniPoints: calculatePoints(),
+            children: []
+        };
+
+        for (let i = 1; i <= 4; i++) {
+            const koName = document.getElementById(`ko${i}Select`).value;
+            if (!koName) continue;
+            let p = parseInt(document.getElementById(`ko${i}Time`).value);
+            if (document.getElementById(`ko${i}B1`).checked) p += 0.5;
+            if (document.getElementById(`ko${i}B2`).checked) p += 0.5;
+            matchData.children.push({ name: koName, points: p });
+        }
+
+        // --- ここでスプレッドシート(GAS)にデータを飛ばす ---
+        const btn = document.querySelector('button[onclick="saveMatch()"]');
+        btn.innerText = "保存中...";
+        btn.disabled = true;
+
+        try {
+            await fetch(GAS_URL, {
+                method: "POST",
+                body: JSON.stringify(matchData)
+            });
+            alert("スプレッドシートに保存しました！");
+            await fetchRanking(); // 最新ランキングを再読み込み
+            resetInputs();
+        } catch (e) {
+            alert("保存に失敗しました。GASのURLや設定を確認してください。");
+        } finally {
+            btn.innerText = "試合結果を保存・集計";
+            btn.disabled = false;
+        }
+    }
+
+    function resetInputs() {
+        for (let i = 1; i <= 4; i++) {
+            document.getElementById(`ko${i}B1`).checked = false;
+            document.getElementById(`ko${i}B2`).checked = false;
+            document.getElementById(`ko${i}Time`).value = "0";
+        }
+        calculatePoints();
+    }
+
+    function updateRanking() {
+        const tbody = document.querySelector('#rankingTable tbody');
+        tbody.innerHTML = '';
+        const sorted = Object.entries(scores)
+            .filter(([name]) => name !== "")
+            .sort((a, b) => b[1] - a[1]);
+
+        sorted.forEach((item, index) => {
+            const row = tbody.insertRow();
+            row.innerHTML = `<td>${index + 1}</td><td>${item[0]}</td><td>${item[1].toFixed(1)} pt</td>`;
+        });
+    }
+</script>
